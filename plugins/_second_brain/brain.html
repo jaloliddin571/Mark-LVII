@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Second Brain</title>
+<style>
+  /* Obsidian's default dark theme, by its own variable names where it has one. */
+  :root {
+    --background-primary: #1e1e1e; --background-secondary: #262626; --background-modifier-border: #363636;
+    --background-modifier-hover: rgba(255, 255, 255, .06);
+    --text-normal: #dadada; --text-muted: #a3a3a3; --text-faint: #666666;
+    --interactive-accent: #a882ff; --text-accent: #a88bfa;
+    --font-interface: Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --note-width: min(400px, 38vw);    /* inside the HUD the page is the avatar's size, not a monitor's */
+  }
+  @media (max-width: 760px) {
+    #hint { display: none; }
+    #crumb .count { display: none; }
+    #note .scroll { padding: 16px 18px 30px; }
+    #note h1.title { font-size: 21px; }
+  }
+  @media (max-height: 520px) { #hint { display: none; } }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; color: var(--text-normal);
+    font: 14px/1.6 var(--font-interface); -webkit-font-smoothing: antialiased;
+    /* A soft light in the middle, the way a graph view reads on a good theme, instead of flat black. */
+    background: radial-gradient(ellipse at 50% 45%, #2b2a30 0%, #222226 38%, #1b1b1e 75%, #161618 100%); }
+  select { width: 100%; background: var(--background-primary); border: 1px solid var(--background-modifier-border);
+    border-radius: 5px; color: var(--text-normal); padding: 5px 8px; font: inherit; font-size: 12.5px; outline: none; }
+  select:focus { border-color: var(--interactive-accent); }
+  #graph { position: fixed; inset: 0; }
+  #graph canvas { outline: none; }
+
+  /* ---- header ---- */
+  #crumb { position: fixed; top: 14px; left: 18px; display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--text-muted); pointer-events: none; user-select: none; }
+  #crumb svg { width: 16px; height: 16px; stroke: var(--text-muted); }
+  #crumb b { color: var(--text-normal); font-weight: 600; }
+  #crumb .count { color: var(--text-faint); font-size: 12px; }
+
+  /* ---- graph controls, like Obsidian's ---- */
+  #controls { position: fixed; top: 12px; right: 14px; width: min(260px, calc(100vw - 28px)); transition: right .3s ease; z-index: 3; }
+  body.note-open #controls { right: calc(var(--note-width) + 14px); }
+  #controls .bar { display: flex; justify-content: flex-end; gap: 4px; }
+  .icon-btn { width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; cursor: pointer;
+    display: grid; place-items: center; color: var(--text-muted); }
+  .icon-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+  .icon-btn svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.8;
+    stroke-linecap: round; stroke-linejoin: round; }
+  #settings { margin-top: 6px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border);
+    border-radius: 8px; padding: 6px 0; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); display: none;
+    max-height: calc(100vh - 70px); overflow: auto; }
+  #settings.open { display: block; animation: pop .16s ease; }
+  @keyframes pop { from { opacity: 0; transform: translateY(-4px); } }
+  .section > summary { list-style: none; cursor: pointer; padding: 7px 14px; font-size: 13px; font-weight: 600;
+    color: var(--text-normal); display: flex; align-items: center; gap: 6px; }
+  .section > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--text-muted);
+    border-bottom: 1.5px solid var(--text-muted); transform: rotate(-45deg); transition: transform .15s; margin-right: 4px; }
+  .section[open] > summary::before { transform: rotate(45deg); }
+  .section > summary::-webkit-details-marker { display: none; }
+  .row { padding: 6px 14px 6px 30px; font-size: 12.5px; color: var(--text-muted); }
+  .row label { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  input[type=search] { width: 100%; background: var(--background-primary); border: 1px solid var(--background-modifier-border);
+    border-radius: 5px; color: var(--text-normal); padding: 6px 9px; font: inherit; font-size: 12.5px; outline: none; }
+  input[type=search]:focus { border-color: var(--interactive-accent); }
+  input[type=range] { -webkit-appearance: none; width: 100%; height: 3px; border-radius: 3px; margin: 8px 0 2px;
+    background: var(--background-modifier-border); outline: none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--text-normal); cursor: pointer; transition: background .15s; }
+  input[type=range]:hover::-webkit-slider-thumb { background: var(--interactive-accent); }
+  .switch { position: relative; width: 30px; height: 17px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; border-radius: 17px; background: var(--background-modifier-border);
+    transition: background .2s; cursor: pointer; }
+  .switch span::after { content: ""; position: absolute; left: 2px; top: 2px; width: 13px; height: 13px; border-radius: 50%;
+    background: #fff; transition: transform .2s; }
+  .switch input:checked + span { background: var(--interactive-accent); }
+  .switch input:checked + span::after { transform: translateX(13px); }
+  .reset { margin: 6px 14px 4px 30px; background: transparent; border: 1px solid var(--background-modifier-border);
+    color: var(--text-muted); border-radius: 5px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+  .reset:hover { color: var(--text-normal); border-color: var(--text-faint); }
+
+  /* ---- the note, like an Obsidian reading view ---- */
+  #note { position: fixed; top: 0; right: 0; bottom: 0; width: var(--note-width); background: var(--background-primary);
+    border-left: 1px solid var(--background-modifier-border); transform: translateX(100%); transition: transform .3s ease;
+    display: flex; flex-direction: column; z-index: 2; }
+  body.note-open #note { transform: none; }
+  #note header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 10px 22px;
+    border-bottom: 1px solid var(--background-modifier-border); font-size: 12.5px; color: var(--text-faint); }
+  #note header .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #note .scroll { overflow: auto; padding: 22px 28px 40px; flex: 1; }
+  #note h1.title { font-size: 26px; line-height: 1.25; margin: 0 0 14px; font-weight: 700; color: var(--text-normal); }
+  .props { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+  .tag { font-size: 12px; color: var(--text-accent); background: var(--tag-bg, rgba(168, 130, 255, .12));
+    border-radius: 12px; padding: 1px 9px; }
+
+  /* ---- the "mind" theme: a warm, golden neural web ---- */
+  body.theme-mind {
+    --background-primary: #0d0a07; --background-secondary: #17110a; --background-modifier-border: #3b2b14;
+    --background-modifier-hover: rgba(255, 194, 71, .08);
+    --text-normal: #f3e6cf; --text-muted: #c2a678; --text-faint: #7a6648;
+    --interactive-accent: #ffc247; --text-accent: #ffcf6b; --tag-bg: rgba(255, 194, 71, .13);
+    background: radial-gradient(ellipse at 50% 48%, #2c1b07 0%, #170f06 32%, #0b0805 68%, #050403 100%);
+  }
+  body.theme-mind #note { background: rgba(13, 10, 7, .9); backdrop-filter: blur(6px);
+    box-shadow: -20px 0 60px rgba(255, 170, 40, .05); }
+  body.theme-mind #note h1.title { color: #fff3d6; text-shadow: 0 0 18px rgba(255, 194, 71, .25); }
+  body.theme-mind #crumb b { color: #ffd98a; letter-spacing: .02em; }
+  #core { position: fixed; left: 50%; top: 48%; width: 70vmin; height: 70vmin; transform: translate(-50%, -50%);
+    border-radius: 50%; pointer-events: none; display: none;
+    background: radial-gradient(circle, rgba(255, 190, 70, .16) 0%, rgba(255, 150, 40, .06) 38%, transparent 68%);
+    animation: breathe 6s ease-in-out infinite; }
+  body.theme-mind #core { display: block; }
+  @keyframes breathe { 0%, 100% { opacity: .55; transform: translate(-50%, -50%) scale(.94); }
+                       50% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); } }
+  .body h1, .body h2, .body h3 { font-weight: 650; line-height: 1.3; margin: 1.2em 0 .4em; }
+  .body h1 { font-size: 21px; } .body h2 { font-size: 18px; } .body h3 { font-size: 16px; }
+  .body p { margin: 0 0 .8em; color: var(--text-normal); }
+  .body ul { margin: 0 0 .8em; padding-left: 1.3em; }
+  .body code { background: var(--background-secondary); border-radius: 4px; padding: 1px 5px; font-size: .9em; }
+  a.internal-link { color: var(--text-accent); text-decoration: none; cursor: pointer; border-bottom: 1px solid transparent; }
+  a.internal-link:hover { border-bottom-color: var(--text-accent); }
+  a.internal-link.unresolved { opacity: .6; cursor: default; }
+  .backlinks { margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--background-modifier-border); }
+  .backlinks h4 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+  .backlinks a { display: block; padding: 3px 0; font-size: 13.5px; }
+
+  #empty { position: fixed; inset: 0; display: none; place-items: center; text-align: center; color: var(--text-faint);
+    font-size: 14px; pointer-events: none; }
+  #empty b { display: block; color: var(--text-muted); font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  #hint { position: fixed; bottom: 12px; left: 18px; font-size: 11.5px; color: var(--text-faint); user-select: none; }
+  #hint kbd { font: inherit; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="core"></div>
+<div id="graph"></div>
+
+<div id="crumb">
+  <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="8" r="2.4"/><circle cx="10" cy="18" r="2.4"/><path d="M8 7l8 1M7 8l2.5 8M16.5 10l-5 6"/></svg>
+  <b id="title">Graph view</b><span class="count" id="count"></span>
+</div>
+
+<div id="controls">
+  <div class="bar">
+    <button class="icon-btn" id="fit" title="Zoom to fit"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <button class="icon-btn" id="gear" title="Graph settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </div>
+  <div id="settings">
+    <details class="section" open><summary>Filters</summary>
+      <div class="row"><input type="search" id="search" placeholder="Search files..."></div>
+    </details>
+    <details class="section" open><summary>Groups</summary>
+      <div class="row"><label>Color by</label>
+        <select data-key="colorMode">
+          <option value="auto">Automatic</option><option value="folder">Folder</option>
+          <option value="cluster">Linked groups</option><option value="none">No colours</option>
+        </select></div>
+      <div class="row"><label>Glow <span class="switch"><input type="checkbox" data-key="glow"><span></span></span></label></div>
+    </details>
+    <details class="section" open><summary>Display</summary>
+      <div class="row"><label>Theme</label>
+        <select data-key="theme"><option value="mind">Mind — golden neural web</option>
+          <option value="obsidian">Obsidian</option></select></div>
+      <div class="row"><label>Text fade threshold</label><input type="range" data-key="textFade" min="0.3" max="3" step="0.05"></div>
+      <div class="row"><label>Node size</label><input type="range" data-key="nodeSize" min="0.4" max="2.5" step="0.05"></div>
+      <div class="row"><label>Link thickness</label><input type="range" data-key="linkThickness" min="0.2" max="3" step="0.05"></div>
+    </details>
+    <details class="section"><summary>Forces</summary>
+      <div class="row"><label>Center force</label><input type="range" data-key="center" min="0" max="0.25" step="0.005"></div>
+      <div class="row"><label>Repel force</label><input type="range" data-key="repel" min="10" max="500" step="5"></div>
+      <div class="row"><label>Link force</label><input type="range" data-key="linkForce" min="0" max="1" step="0.02"></div>
+      <div class="row"><label>Link distance</label><input type="range" data-key="linkDistance" min="10" max="250" step="5"></div>
+    </details>
+    <button class="reset" id="reset">Restore defaults</button>
+  </div>
+</div>
+
+<aside id="note">
+  <header><span class="path" id="nPath"></span>
+    <button class="icon-btn" id="nClose" title="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+  <div class="scroll"><h1 class="title" id="nTitle"></h1><div class="props" id="nProps"></div>
+    <div class="body" id="nBody"></div><div class="backlinks" id="nLinks"></div></div>
+</aside>
+
+<div id="empty"><div><b>No notes yet</b>Ask the assistant to remember something, or write a note in Obsidian.</div></div>
+<div id="hint"><kbd>scroll</kbd> zoom · <kbd>drag</kbd> move · <kbd>click</kbd> open · <kbd>Esc</kbd> close · <kbd>Ctrl+Shift+B</kbd> toggle</div>
+
+<script src="graph-data.js"></script>
+<script src="vendor/force-graph.min.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+if (params.get('name')) document.getElementById('title').textContent = params.get('name') + ' · Graph view';
+
+// Two looks over one engine. "mind" is a warm, golden neural web: glowing cores, sparks running
+// along the links, a slow breathing light in the middle. "obsidian" is Obsidian's own graph view.
+const THEMES = {
+  mind: {
+    accent: '#ffc247', node: '#f0b13a', near: '#ffd98a', label: '#f3e6cf', focusLabel: '#fff7e0',
+    link: '#d99a3a', halo: 'rgba(255,194,71,0.26)', spark: '#ffe6a3', core: '#fff3cf',
+    glow: 16, glowFocus: 30, particles: true,
+    groups: ['#ffc247', '#ff9a3d', '#ffe08a', '#ff7a45', '#f6d365', '#ffb36b', '#e8c35a', '#ff8f6b'],
+  },
+  obsidian: {
+    accent: '#a882ff', node: '#9a9a9a', near: '#d0d0d0', label: '#dadada', focusLabel: '#ffffff',
+    link: '#b4b4bc', halo: 'rgba(168,130,255,0.22)', spark: null, core: null,
+    glow: 10, glowFocus: 18, particles: false,
+    groups: ['#a882ff', '#53dfdd', '#e0de71', '#44cf6e', '#fa99cd', '#e9973f', '#027aff', '#fb464c'],
+  },
+};
+const DEFAULTS = { theme: 'mind', colorMode: 'auto', glow: true, textFade: 1.4, nodeSize: 1, linkThickness: 1,
+                   center: 0.05, repel: 140, linkForce: 0.55, linkDistance: 70 };
+const MAX_FIT_ZOOM = 2.2;          // a vault of three notes should still look like a graph, not a close-up
+let S = { ...DEFAULTS };
+try {
+  const saved = JSON.parse(localStorage.getItem('second-brain.settings') || '{}');
+  delete saved.groups;             // the old on/off switch, replaced by "Color by"
+  Object.assign(S, saved);
+} catch {}
+const saveSettings = () => { try { localStorage.setItem('second-brain.settings', JSON.stringify(S)); } catch {} };
+const T = () => THEMES[S.theme] || THEMES.mind;
+const applyTheme = () => Object.keys(THEMES).forEach(name => document.body.classList.toggle('theme-' + name, T() === THEMES[name]));
+applyTheme();
+
+// ---------------------------------------------------------------- data
+const endId = e => typeof e === 'object' ? e.id : e;
+const neighbors = new Map();
+const groupIndex = new Map();
+const clusterOf = new Map();       // node id -> index of its connected group
+let clusterCount = 0;
+function index(nodes, links) {
+  neighbors.clear();
+  nodes.forEach(n => { neighbors.set(n.id, new Set()); if (!groupIndex.has(n.group)) groupIndex.set(n.group, groupIndex.size); });
+  links.forEach(l => { neighbors.get(endId(l.source))?.add(endId(l.target)); neighbors.get(endId(l.target))?.add(endId(l.source)); });
+  // Linked groups: notes joined by any chain of links share a colour. Biggest group first, so the
+  // main body of a vault gets the first colour of the palette.
+  clusterOf.clear();
+  const groups = [];
+  for (const n of nodes) {
+    if (clusterOf.has(n.id)) continue;
+    const members = [n.id], seen = new Set([n.id]);
+    for (let i = 0; i < members.length; i++)
+      for (const m of neighbors.get(members[i])) if (!seen.has(m)) { seen.add(m); members.push(m); }
+    members.forEach(id => clusterOf.set(id, -1));
+    groups.push(members);
+  }
+  groups.sort((a, b) => b.length - a.length).forEach((members, i) => members.forEach(id => clusterOf.set(id, i)));
+  clusterCount = groups.length;
+}
+function colorMode() {
+  if (S.colorMode !== 'auto') return S.colorMode;
+  return groupIndex.size > 1 ? 'folder' : clusterCount > 1 ? 'cluster' : 'none';
+}
+index(GRAPH.nodes, GRAPH.links);
+GRAPH.nodes.forEach(n => { n.a = 1; n.ta = 1; });
+GRAPH.links.forEach(l => { l.a = 0.35; l.ta = 0.35; });
+
+// ---------------------------------------------------------------- state
+let hover = null, focus = null, lit = null, matches = null;
+const ease = t => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const radius = n => S.nodeSize * (2.4 + Math.sqrt(neighbors.get(n.id)?.size || 0) * 1.25);
+function colorOf(n) {
+  const mode = colorMode();
+  const palette = T().groups;
+  if (mode === 'folder') return palette[groupIndex.get(n.group) % palette.length];
+  if (mode === 'cluster') return palette[(clusterOf.get(n.id) || 0) % palette.length];
+  return T().node;
+}
+
+function updateTargets() {
+  const act = hover || focus;
+  const near = act ? new Set([act.id, ...neighbors.get(act.id)]) : null;
+  const set = near || matches || lit;
+  for (const n of graph.graphData().nodes) {
+    n.ta = !set || set.has(n.id) ? 1 : 0.12;
+    n.emph = act && n.id === act.id ? 2 : set && set.has(n.id) ? 1 : 0;
+  }
+  for (const l of graph.graphData().links) {
+    const s = endId(l.source), t = endId(l.target);
+    l.on = act ? (s === act.id || t === act.id) : !!(set && set.has(s) && set.has(t));
+    l.ta = l.on ? 0.95 : set ? 0.05 : 0.32;
+  }
+}
+
+// ---------------------------------------------------------------- the graph
+const graph = ForceGraph()(document.getElementById('graph'))
+  .backgroundColor('rgba(0,0,0,0)')   // the page's soft gradient shows through
+  .autoPauseRedraw(false)            // keeps the fades smooth after the layout settles
+  .nodeId('id')
+  .nodeLabel(() => '')
+  .warmupTicks(40)
+  .cooldownTime(12000)
+  .d3VelocityDecay(0.32)
+  .minZoom(0.15).maxZoom(9)
+  .onRenderFramePre(() => {
+    updateTargets();
+    for (const n of graph.graphData().nodes) n.a += (n.ta - n.a) * 0.16;
+    for (const l of graph.graphData().links) l.a += (l.ta - l.a) * 0.16;
+  })
+  .linkCanvasObjectMode(() => 'replace')
+  .linkCanvasObject((l, ctx, k) => {
+    if (!l.source.x && l.source.x !== 0) return;
+    const th = T(), sx = l.source.x, sy = l.source.y, tx = l.target.x, ty = l.target.y;
+    ctx.strokeStyle = l.on ? th.accent : th.link;
+    ctx.globalAlpha = l.a * (l.on ? 1 : 0.85);
+    ctx.lineWidth = S.linkThickness * (l.on ? 1.5 : 1) / k;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
+    // Sparks: small lights running along each link, like signals through a nerve.
+    // Faster and brighter on the links of the note in focus.
+    if (th.particles && l.a > 0.04) {
+      if (l.seed === undefined) l.seed = Math.random();
+      const count = l.on ? 3 : 1, speed = l.on ? 0.00045 : 0.00016, rr = (l.on ? 2.3 : 1.6) / k;
+      ctx.fillStyle = th.spark; ctx.shadowColor = th.accent; ctx.shadowBlur = l.on ? 12 : 7;
+      ctx.globalAlpha = Math.min(1, l.a * (l.on ? 1.05 : 1.6));
+      for (let i = 0; i < count; i++) {
+        const t = (performance.now() * speed + l.seed + i / count) % 1;
+        ctx.beginPath(); ctx.arc(sx + (tx - sx) * t, sy + (ty - sy) * t, rr, 0, 2 * Math.PI); ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+  })
+  .nodeCanvasObject((n, ctx, k) => {
+    const born = n.born ? ease((performance.now() - n.born) / 700) : 1;
+    const r = radius(n) * (n.born ? 0.2 + 0.8 * born + 0.25 * Math.sin(Math.PI * born) : 1);
+    const th = T();
+    ctx.globalAlpha = n.a;
+    if (n.born && born < 1) {                     // a new note: a ring spreading out from it
+      ctx.strokeStyle = th.accent; ctx.globalAlpha = (1 - born) * 0.8; ctx.lineWidth = 1.5 / k;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r + 26 * born, 0, 2 * Math.PI); ctx.stroke();
+      ctx.globalAlpha = n.a;
+    }
+    if (n.emph === 2) {                           // the note in focus: a soft halo that breathes
+      const pulse = th.particles ? 1 + 0.25 * Math.sin(performance.now() / 420) : 1;
+      ctx.fillStyle = th.halo;
+      ctx.beginPath(); ctx.arc(n.x, n.y, (r + 4 / Math.sqrt(k) + 2) * pulse, 0, 2 * Math.PI); ctx.fill();
+    }
+    const fill = n.emph === 2 || (n.born && born < 1) ? th.accent
+      : n.emph === 1 && colorMode() === 'none' ? th.near : colorOf(n);
+    ctx.fillStyle = fill;
+    if (S.glow) { ctx.shadowColor = fill; ctx.shadowBlur = (n.emph ? th.glowFocus : th.glow) * n.a; }   // screen pixels
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.fill();
+    ctx.shadowBlur = 0;
+    if (th.core) {                                // a bright core: the node reads as a light, not a disc
+      ctx.fillStyle = th.core; ctx.globalAlpha = n.a * 0.85;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.42, 0, 2 * Math.PI); ctx.fill();
+      ctx.globalAlpha = n.a;
+    }
+
+    // Labels sit under the node and fade in as you zoom, like Obsidian's text fade threshold.
+    const fs = n.emph ? Math.max(4.2, 11.5 / k) : 4.2;
+    const show = n.emph ? 1 : smooth(S.textFade, S.textFade + 0.7, k);
+    if (show > 0.02) {
+      ctx.globalAlpha = n.a * show;
+      ctx.font = `${n.emph === 2 ? 600 : 400} ${fs}px Inter, "Segoe UI Variable Text", "Segoe UI", sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillStyle = n.emph === 2 ? th.focusLabel : th.label;
+      ctx.fillText(n.label, n.x, n.y + r + fs * 0.45);
+    }
+    ctx.globalAlpha = 1;
+  })
+  .nodePointerAreaPaint((n, color, ctx) => {
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(n.x, n.y, radius(n) + 3, 0, 2 * Math.PI); ctx.fill();
+  })
+  .onNodeHover(n => { hover = n || null; document.body.style.cursor = n ? 'pointer' : ''; })
+  .onNodeClick(n => select(n))
+  .onBackgroundClick(() => select(null))
+  .onNodeDragEnd(n => { n.fx = undefined; n.fy = undefined; })   // let go: it springs back into place
+  .graphData(GRAPH);
+
+// The canvas is sized once, when the page opens. The HUD can be resized or go full screen
+// (F11) afterwards, and without this the graph kept drawing in its old, smaller rectangle.
+const host = document.getElementById('graph');
+let refitTimer = null;
+function resizeCanvas() {
+  const w = host.clientWidth, h = host.clientHeight;
+  if (!w || !h || (w === graph.width() && h === graph.height())) return;
+  graph.width(w).height(h);
+  // Re-frame for the new size once the resize settles, unless a note is being looked at.
+  clearTimeout(refitTimer);
+  refitTimer = setTimeout(() => { if (!focus && fitted) fit(500); }, 250);
+}
+new ResizeObserver(resizeCanvas).observe(host);
+addEventListener('resize', resizeCanvas);
+
+// Obsidian's four forces. "Center" is a gentle pull toward the middle, not a hard re-centring.
+let simNodes = [];
+function gravity(alpha) {
+  for (const n of simNodes) { n.vx -= n.x * S.center * alpha; n.vy -= n.y * S.center * alpha; }
+}
+gravity.initialize = ns => { simNodes = ns; };
+graph.d3Force('center', null).d3Force('gravity', gravity);
+function applyForces() {
+  graph.d3Force('charge').strength(-S.repel).distanceMax(600);
+  graph.d3Force('link').distance(S.linkDistance).strength(S.linkForce);
+  graph.d3ReheatSimulation();
+}
+applyForces();
+// Fit everything on screen, but never closer than MAX_FIT_ZOOM: a handful of notes should still
+// read as a small constellation in the middle, not as four giant labels filling the window.
+function fit(ms = 700, filter) {
+  graph.zoomToFit(ms, 110, filter);
+  // The cap grows with the window: what is a constellation in a small HUD is a speck at full screen.
+  const cap = MAX_FIT_ZOOM * Math.max(1, Math.min(innerWidth, innerHeight) / 600);
+  setTimeout(() => { if (graph.zoom() > cap) graph.zoom(cap, 400); }, ms + 30);
+}
+let fitted = false;
+graph.onEngineStop(() => { if (!fitted) { fitted = true; fit(); } });
+setTimeout(() => { if (!fitted) { fitted = true; fit(); } }, 1200);
+
+function showCount() {
+  const gd = graph.graphData();
+  document.getElementById('count').textContent = `${gd.nodes.length} notes · ${gd.links.length} links`;
+  document.getElementById('empty').style.display = gd.nodes.length ? 'none' : 'grid';
+}
+showCount();
+
+// ---------------------------------------------------------------- the note
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const byLabel = label => graph.graphData().nodes.find(n => n.label.toLowerCase() === label.trim().toLowerCase());
+function inline(s) {
+  return esc(s)
+    .replace(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g, (_, t, alias) =>
+      `<a class="internal-link${byLabel(t) ? '' : ' unresolved'}" data-target="${esc(t)}">${esc(alias || t)}</a>`)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/(^|\s)#([\p{L}\d_/-]+)/gu, '$1<span class="tag">#$2</span>');
+}
+function markdown(text) {
+  const out = []; let list = false;
+  for (const raw of text.split('\n')) {
+    const line = raw.trimEnd();
+    const h = line.match(/^(#{1,3})\s+(.*)/), li = line.match(/^\s*[-*]\s+(.*)/);
+    if (!li && list) { out.push('</ul>'); list = false; }
+    if (h) out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);
+    else if (li) { if (!list) { out.push('<ul>'); list = true; } out.push(`<li>${inline(li[1])}</li>`); }
+    else if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+  }
+  if (list) out.push('</ul>');
+  return out.join('');
+}
+function openNote(n) {
+  document.getElementById('nPath').textContent = n.path;
+  document.getElementById('nTitle').textContent = n.label;
+  document.getElementById('nProps').innerHTML = `<span class="tag">${esc(n.group)}</span>`;
+  const body = n.excerpt.replace(/^#\s+.*\n+/, '');        // the title is already the heading
+  document.getElementById('nBody').innerHTML = markdown(body);
+  const links = [...neighbors.get(n.id)].map(id => graph.graphData().nodes.find(x => x.id === id)).filter(Boolean);
+  document.getElementById('nLinks').innerHTML = links.length
+    ? `<h4>Linked notes · ${links.length}</h4>` + links.map(x => `<a class="internal-link" data-target="${esc(x.label)}">${esc(x.label)}</a>`).join('')
+    : '';
+  document.body.classList.add('note-open');
+}
+document.getElementById('note').addEventListener('click', e => {
+  const a = e.target.closest('a.internal-link');
+  const n = a && byLabel(a.dataset.target);
+  if (n) select(n);
+});
+document.getElementById('nClose').onclick = () => select(null);
+
+function select(n, { fly = true } = {}) {
+  focus = n || null;
+  if (!n) { document.body.classList.remove('note-open'); return; }
+  lit = null;
+  openNote(n);
+  if (fly && Number.isFinite(n.x)) {
+    // Centre the note in the part of the graph the note panel does not cover.
+    const z = Math.max(graph.zoom(), 2.4);
+    const covered = Math.min(document.getElementById('note').getBoundingClientRect().width || 0, innerWidth * 0.6);
+    graph.centerAt(n.x + covered / 2 / z, n.y, 800);
+    graph.zoom(z, 800);
+  }
+}
+
+// ---------------------------------------------------------------- controls
+const settings = document.getElementById('settings');
+document.getElementById('gear').onclick = () => settings.classList.toggle('open');
+document.getElementById('fit').onclick = () => fit();
+function syncInputs() {
+  settings.querySelectorAll('[data-key]').forEach(el => {
+    if (el.type === 'checkbox') el.checked = !!S[el.dataset.key]; else el.value = S[el.dataset.key];
+  });
+}
+settings.querySelectorAll('[data-key]').forEach(el => el.addEventListener('input', () => {
+  const key = el.dataset.key;
+  S[key] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' ? el.value : parseFloat(el.value);
+  if (['center', 'repel', 'linkForce', 'linkDistance'].includes(key)) applyForces();
+  if (key === 'theme') applyTheme();
+  saveSettings();
+}));
+document.getElementById('reset').onclick = () => { S = { ...DEFAULTS }; syncInputs(); applyForces(); applyTheme(); saveSettings(); };
+syncInputs();
+document.getElementById('search').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  matches = q ? new Set(graph.graphData().nodes.filter(n => n.label.toLowerCase().includes(q) ||
+                                                         n.excerpt.toLowerCase().includes(q)).map(n => n.id)) : null;
+});
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (settings.classList.contains('open')) settings.classList.remove('open');
+  else if (focus) select(null);
+  else document.title = 'close-requested:' + Date.now();   // the window listens for this and hides
+});
+
+// ---------------------------------------------------------------- the API the assistant drives
+const nodeById = id => graph.graphData().nodes.find(n => n.id === id);
+window.brain = {
+  focus(id) { const n = nodeById(id); if (n) select(n); return !!n; },
+  // Several notes at once: light them and frame them, no single note opened.
+  light(ids) {
+    select(null); lit = new Set(ids);
+    setTimeout(() => fit(800, n => lit && lit.has(n.id)), 50);
+    return ids.length;
+  },
+  clear() { lit = null; matches = null; select(null); return true; },
+  // A new note: born beside its closest relative, grows in with a ring, then opens.
+  add(node, links, nearId) {
+    const gd = graph.graphData(), near = nodeById(nearId);
+    Object.assign(node, { a: 0, ta: 1, born: performance.now(),
+                          x: (near ? near.x : 0) + (Math.random() - 0.5) * 16, y: (near ? near.y : 0) + (Math.random() - 0.5) * 16 });
+    links.forEach(l => { l.a = 0; l.ta = 0.35; });
+    graph.graphData({ nodes: [...gd.nodes, node], links: [...gd.links, ...links] });
+    index(graph.graphData().nodes, graph.graphData().links);
+    applyForces();
+    showCount();
+    setTimeout(() => select(node), 650);
+    setTimeout(() => { delete node.born; }, 1600);
+    return graph.graphData().nodes.length;
+  },
+  count() { return graph.graphData().nodes.length; },
+};
+</script>
+</body>
+</html>

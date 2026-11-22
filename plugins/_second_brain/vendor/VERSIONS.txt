@@ -1,0 +1,13 @@
+Libraries served from this folder so the viewer needs no network at all.
+
+3d-force-graph 1.73.4 (UMD bundle, includes three.js)
+  file:   3d-force-graph.min.js
+  source: https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js
+  sha256: 0ddfb909b551f4fdeb6b43cca567e71f2bc82b2e2eadf1d7cda65af8961b2d0f
+  fetched: 2026-11-03
+
+force-graph 1.49.5 (2D, UMD bundle, includes d3-force)
+  file:   force-graph.min.js
+  source: https://unpkg.com/force-graph@1.49.5/dist/force-graph.min.js
+  sha256: c778f2efccd7b18e9a4030f53d81d319f179a8ab8fbc6f10001dc6c904d203a1
+  fetched: 2026-11-03
